@@ -1,5 +1,6 @@
 import * as THREE from "./vendor/three.module.min.js";
-import {readXrControls,updateXrViewState,XR_VIEW_DEFAULT} from "./xr-input.js";
+const BUILD_VERSION=new URL(import.meta.url).searchParams.get("v")??"dev";
+const {readXrControls,updateXrViewState,XR_VIEW_DEFAULT}=await import(`./xr-input.js?v=${encodeURIComponent(BUILD_VERSION)}`);
 
 const WIDTH=256,HEIGHT=192,FRAME_MS=20,MAX_PIXELS=WIDTH*HEIGHT;
 const CONTROL_TEXT="VR: left stick moves · right stick gets nearer/orbits · right-stick click resets · trigger/A/X jumps · B/Y/Menu starts";
@@ -36,11 +37,11 @@ const colorMeshes=colorObjects.map((color,index)=>{
 });
 const matrix=new THREE.Matrix4(),position=new THREE.Vector3(),scale=new THREE.Vector3(),quaternion=new THREE.Quaternion();
 
-const wasm=await WebAssembly.instantiateStreaming(await fetch("./src/manic_miner_core.wasm"),{});
+const wasm=await WebAssembly.instantiateStreaming(await fetch(`./src/manic_miner_core.wasm?v=${encodeURIComponent(BUILD_VERSION)}`),{});
 const core=wasm.instance.exports,initResult=core.manic_init();
 if(initResult!==0)throw new Error(`WASM core initialization failed (${initResult})`);
 const screenPointer=core.manic_screen_ptr();
-globalThis.__manic={core,colorMeshes,renderer,scene,stage,palette,updateRelief,applyXrView};
+globalThis.__manic={core,colorMeshes,renderer,scene,stage,palette,updateRelief,applyXrView,buildVersion:BUILD_VERSION};
 status.textContent="Select ENABLE SOUND, or click/tap the game, to allow audio";
 
 let previous=performance.now(),accumulator=0,screenDirty=true,xrInput={left:false,right:false,jump:false,start:false},xrButtonsReady=false,xrGameStarted=false;
@@ -53,7 +54,7 @@ async function unlockAudio(){
     if(!audioContext){
       audioContext=new AudioContext({sampleRate:48_000,latencyHint:"interactive"});
       const resumePromise=audioContext.resume();
-      await Promise.all([resumePromise,audioContext.audioWorklet.addModule("./src/audio-worklet.js")]);
+      await Promise.all([resumePromise,audioContext.audioWorklet.addModule(`./src/audio-worklet.js?v=${encodeURIComponent(BUILD_VERSION)}`)]);
       audioNode=new AudioWorkletNode(audioContext,"spectrum-beeper",{outputChannelCount:[2]});audioNode.connect(audioContext.destination);
     }
     await audioContext.resume();if(audioContext.state!=="running")throw new Error(`Audio context is ${audioContext.state}`);

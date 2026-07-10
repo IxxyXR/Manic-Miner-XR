@@ -17,6 +17,11 @@
   <div id="touch" aria-hidden="true">
     <button data-key="10">LEFT</button><button data-key="25">RIGHT</button><button data-key="35">JUMP</button>
   </div>
-  <script type="module" src="src/main.js"></script>
+  <script type="module">
+    const response=await fetch(`./version.json?cache=${Date.now()}`,{cache:"no-store"});
+    const version=response.ok?(await response.text()).trim():"dev";
+    document.querySelector('link[rel="stylesheet"]').href=`styles.css?v=${encodeURIComponent(version)}`;
+    await import(`./src/main.js?v=${encodeURIComponent(version)}`);
+  </script>
 </body>
 </html>

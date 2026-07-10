@@ -11,11 +11,13 @@ export function updateXrViewState(view,controls,seconds){
 }
 
 export function readXrControls(inputSources){
+  const sources=Array.from(inputSources).filter(source=>source.gamepad),hasMenuLayout=sources.some(source=>source.gamepad.buttons.length>=8);
   let horizontal=0,viewX=0,viewY=0,jump=false,start=false,viewReset=false;
-  for(const source of inputSources){
+  for(const [index,source]of sources.entries()){
     const gamepad=source.gamepad;if(!gamepad)continue;
     const x=deadzone(Number.isFinite(gamepad.axes[2])?gamepad.axes[2]:(gamepad.axes[0]??0)),y=deadzone(Number.isFinite(gamepad.axes[3])?gamepad.axes[3]:(gamepad.axes[1]??0));
-    if(source.handedness==="right"){viewX=x;viewY=y;viewReset ||= pressed(gamepad,3)}
+    const unknownHand=source.handedness!=="left"&&source.handedness!=="right",inferredRight=unknownHand&&(hasMenuLayout?gamepad.buttons.length<8:sources.length>1&&index===sources.length-1);
+    if(source.handedness==="right"||inferredRight){viewX=x;viewY=y;viewReset ||= pressed(gamepad,3)}
     else if(Math.abs(x)>Math.abs(horizontal))horizontal=x;
     jump ||= pressed(gamepad,0)||pressed(gamepad,4);
     start ||= pressed(gamepad,5)||pressed(gamepad,7);
