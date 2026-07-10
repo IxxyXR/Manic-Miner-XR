@@ -15,6 +15,11 @@ test("snapshot enters the original title routine",async()=>{
   const screen=new Uint8Array(value.memory.buffer,value.manic_screen_ptr(),256*192);
   assert.ok(screen.reduce((count,pixel)=>count+((pixel&7)!==0),0)>30_000);
 });
+test("the untouched title sequence enters the original demo mode",async()=>{
+  const value=await core();let frame=0;
+  while(value.manic_peek(0x845a)===0&&frame<3_000){value.manic_frame();frame++}
+  assert.equal(value.manic_peek(0x845a),0x40);assert.equal(value.manic_peek(0x8407),0);assert.equal(cavernName(value),"Central Cavern");
+});
 test("the original beeper produces one stereo audio block per frame",async()=>{
   const value=await core();frames(value,10);const length=value.manic_audio_len();assert.equal(length,1920);
   const samples=new Float32Array(value.memory.buffer,value.manic_audio_ptr(),length);assert.ok(samples.some(sample=>sample!==0));
@@ -28,9 +33,21 @@ test("movement and jumping use the original Spectrum input path",async()=>{
   const value=await enterCentralCavern();value.manic_key(25,1);frames(value,20);value.manic_key(25,0);assert.equal(value.manic_peek(0x806c),0xa3);
   value.manic_key(35,1);frames(value,8);value.manic_key(35,0);assert.equal(value.manic_peek(0x806b),1);assert.ok(value.manic_peek(0x8068)<0xd0);
 });
+test("air exhaustion loses a life and reinitializes the original cavern",async()=>{
+  const value=await enterCentralCavern(),initialLives=value.manic_peek(0x8457);let frame=0;
+  while(value.manic_peek(0x8457)===initialLives&&frame<9_000){value.manic_frame();frame++}
+  assert.equal(value.manic_peek(0x8457),initialLives-1);assert.equal(cavernName(value),"Central Cavern");
+  assert.equal(value.manic_peek(0x8068),0xd0);assert.equal(value.manic_peek(0x806c),0xa2);assert.equal(value.manic_peek(0x80bc),0x3f);
+});
 test("the original 6031769 mechanism initializes special caverns",async()=>{
   const value=await enterCentralCavern();for(const key of[24,20,17,15,23,24,21])tap(value,key);assert.equal(value.manic_peek(0x845d),7);
   teleport(value,7);assert.equal(cavernName(value),"Miner Willy meets the Kong Beast");
   teleport(value,18);assert.equal(cavernName(value),"Solar Power Generator");
   teleport(value,19);assert.equal(cavernName(value),"The Final Barrier");
+});
+test("entering an opened portal runs the original next-cavern transition",async()=>{
+  const value=await enterCentralCavern(),portal=value.manic_peek(0x80b0)|(value.manic_peek(0x80b1)<<8);
+  value.manic_poke(0x808f,value.manic_peek(0x808f)|0x80);value.manic_poke(0x806c,portal&0xff);value.manic_poke(0x806d,portal>>8);
+  let frame=0;while(cavernName(value)!=="The Cold Room"&&frame<1_000){value.manic_frame();frame++}
+  assert.equal(value.manic_peek(0x8407),1);assert.equal(cavernName(value),"The Cold Room");
 });

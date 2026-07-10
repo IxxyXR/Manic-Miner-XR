@@ -1,5 +1,6 @@
 use core::time::Duration;
 use rustzx_core::{
+    poke::{Poke,PokeAction},
     host::{BufferCursor,FrameBuffer,FrameBufferSource,Host,HostContext,Snapshot,Stopwatch,StubDebugInterface,StubIoExtender},
     zx::{keys::ZXKey,machine::ZXMachine,video::colors::{ZXBrightness,ZXColor}},
     EmulationMode,Emulator,RustzxSettings,
@@ -25,6 +26,8 @@ impl Host for BrowserHost{
 impl HostContext<BrowserHost> for BrowserContext{fn frame_buffer_context(&self)->FrameContext{FrameContext}}
 
 struct CoreState{emulator:Emulator<BrowserHost>,audio:Vec<f32>}
+struct MemoryPoke([PokeAction;1]);
+impl Poke for MemoryPoke{fn actions(&self)->&[PokeAction]{&self.0}}
 static mut STATE:*mut CoreState=core::ptr::null_mut();
 unsafe fn state()->Option<&'static CoreState>{let pointer=STATE;pointer.as_ref()}
 unsafe fn state_mut()->Option<&'static mut CoreState>{let pointer=STATE;pointer.as_mut()}
@@ -44,6 +47,7 @@ unsafe fn state_mut()->Option<&'static mut CoreState>{let pointer=STATE;pointer.
 #[no_mangle]pub extern "C" fn manic_audio_ptr()->*const f32{unsafe{state().map_or(core::ptr::null(),|value|value.audio.as_ptr())}}
 #[no_mangle]pub extern "C" fn manic_audio_len()->u32{unsafe{state().map_or(0,|value|value.audio.len()as u32)}}
 #[no_mangle]pub extern "C" fn manic_peek(address:u32)->u32{unsafe{state().map_or(0,|value|u32::from(value.emulator.peek(address as u16)))}}
+#[no_mangle]pub extern "C" fn manic_poke(address:u32,byte:u32){unsafe{if let Some(value)=state_mut(){value.emulator.execute_poke(MemoryPoke([PokeAction::mem(address as u16,byte as u8)]))}}}
 #[no_mangle]pub extern "C" fn manic_key(key:u32,pressed:u32){
     use ZXKey::*;
     let key=match key{0=>Shift,1=>Z,2=>X,3=>C,4=>V,5=>A,6=>S,7=>D,8=>F,9=>G,10=>Q,11=>W,12=>E,13=>R,14=>T,15=>N1,16=>N2,17=>N3,18=>N4,19=>N5,20=>N0,21=>N9,22=>N8,23=>N7,24=>N6,25=>P,26=>O,27=>I,28=>U,29=>Y,30=>Enter,31=>L,32=>K,33=>J,34=>H,35=>Space,36=>SymShift,37=>M,38=>N,39=>B,_=>return};
