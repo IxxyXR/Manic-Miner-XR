@@ -1,6 +1,7 @@
 import * as THREE from "./vendor/three.module.min.js";
 
 const WIDTH=256,HEIGHT=192,FRAME_MS=20,MAX_PIXELS=WIDTH*HEIGHT;
+const CONTROL_TEXT="Q/P or arrows: move · Space: jump · Enter: start";
 const DEPTH=Object.freeze({
   background:1,platform:22,wall:20,hazard:16,extra:14,scenery:3,
   surface:22,actor:2.5,boss:3,item:1.5,portal:2.5,effect:2,solarEffect:1.25,
@@ -38,8 +39,8 @@ const wasm=await WebAssembly.instantiateStreaming(await fetch("./src/manic_miner
 const core=wasm.instance.exports,initResult=core.manic_init();
 if(initResult!==0)throw new Error(`WASM core initialization failed (${initResult})`);
 const screenPointer=core.manic_screen_ptr();
-globalThis.__manic={core,colorMeshes,renderer,scene,palette,updateRelief};
-status.textContent="Q/P or arrows: move · Space: jump · Enter: start";
+globalThis.__manic={core,colorMeshes,renderer,scene,stage,palette,updateRelief};
+status.textContent=CONTROL_TEXT;
 
 let previous=performance.now(),accumulator=0,screenDirty=true,xrInput={left:false,right:false,jump:false};
 let audioContext=null,audioNode=null;
@@ -134,8 +135,16 @@ addEventListener("resize",resize);resize();
 async function enableXr(){
   if(!navigator.xr||!await navigator.xr.isSessionSupported("immersive-vr"))return;
   const button=document.createElement("button");button.id="xr";button.textContent="ENTER VR";document.body.append(button);
-  button.addEventListener("click",async()=>{const session=await navigator.xr.requestSession("immersive-vr",{optionalFeatures:["local-floor"]});await renderer.xr.setSession(session)});
+  button.addEventListener("click",async()=>{
+    button.disabled=true;let session=null;
+    try{
+      session=await navigator.xr.requestSession("immersive-vr",{optionalFeatures:["local-floor"]});
+      try{await renderer.xr.setSession(session)}catch(error){await session.end().catch(()=>{});throw error}
+    }catch(error){
+      console.error("[MMXR:XR] Failed to enter VR",error);button.disabled=false;status.textContent=`VR unavailable: ${error.message}`;
+    }
+  });
   renderer.xr.addEventListener("sessionstart",()=>{stage.scale.setScalar(.009);stage.position.set(0,1.45,-2.25);status.hidden=true;button.hidden=true});
-  renderer.xr.addEventListener("sessionend",()=>{stage.scale.setScalar(1);stage.position.set(0,0,0);status.hidden=false;button.hidden=false});
+  renderer.xr.addEventListener("sessionend",()=>{stage.scale.setScalar(1);stage.position.set(0,0,0);status.textContent=CONTROL_TEXT;status.hidden=false;button.disabled=false;button.hidden=false});
 }
 enableXr();
