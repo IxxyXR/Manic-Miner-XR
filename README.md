@@ -24,7 +24,13 @@ python -m http.server 8080
 
 Open `http://127.0.0.1:8080`. Use Q/P or Left/Right to move, Space or Up to jump,
 and Enter to leave the title screen. On a compatible secure-context browser,
-**Enter VR** enables WebXR; the thumbstick moves and the primary button jumps.
+**Enter VR** enables WebXR. On Quest, either thumbstick moves, trigger or A/X
+jumps, and B/Y or the left Menu button starts the game. On the initial title
+screen, a jump button also starts after the Enter VR selection has been released.
+
+Browsers do not permit audible playback before a user gesture. Select **ENABLE
+SOUND**, click/tap the game, press a key, or select **ENTER VR** to enable it;
+the sound prompt disappears once the audio context is running.
 
 Run deterministic core checks with `npm test`.
 

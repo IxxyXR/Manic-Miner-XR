@@ -1,14 +1,15 @@
 import * as THREE from "./vendor/three.module.min.js";
+import {readXrControls} from "./xr-input.js";
 
 const WIDTH=256,HEIGHT=192,FRAME_MS=20,MAX_PIXELS=WIDTH*HEIGHT;
-const CONTROL_TEXT="Q/P or arrows: move · Space: jump · Enter: start";
+const CONTROL_TEXT="Desktop: arrows/Q/P move · Space jumps · Enter starts · VR: stick moves · trigger/A/X jumps · B/Y/Menu starts";
 const DEPTH=Object.freeze({
   background:1,platform:22,wall:20,hazard:16,extra:14,scenery:3,
   surface:22,actor:2.5,boss:3,item:1.5,portal:2.5,effect:2,solarEffect:1.25,
   ui:1.25,title:2,titleBright:2.5
 });
 const palette=[[0,0,0],[0,0,.8],[.8,0,0],[.8,0,.8],[0,.8,0],[0,.8,.8],[.8,.8,0],[.8,.8,.8],[0,0,0],[0,0,1],[1,0,0],[1,0,1],[0,1,0],[0,1,1],[1,1,0],[1,1,1]];
-const canvas=document.querySelector("#spectrum"),stageElement=document.querySelector("#stage"),status=document.querySelector("#status");
+const canvas=document.querySelector("#spectrum"),stageElement=document.querySelector("#stage"),status=document.querySelector("#status"),soundButton=document.querySelector("#sound");
 const renderer=new THREE.WebGLRenderer({canvas,antialias:true,alpha:false,powerPreference:"high-performance"});
 renderer.setPixelRatio(Math.min(devicePixelRatio,2));
 renderer.outputColorSpace=THREE.SRGBColorSpace;renderer.xr.enabled=true;
@@ -40,18 +41,29 @@ const core=wasm.instance.exports,initResult=core.manic_init();
 if(initResult!==0)throw new Error(`WASM core initialization failed (${initResult})`);
 const screenPointer=core.manic_screen_ptr();
 globalThis.__manic={core,colorMeshes,renderer,scene,stage,palette,updateRelief};
-status.textContent=CONTROL_TEXT;
+status.textContent="Select ENABLE SOUND, or click/tap the game, to allow audio";
 
-let previous=performance.now(),accumulator=0,screenDirty=true,xrInput={left:false,right:false,jump:false};
-let audioContext=null,audioNode=null;
-globalThis.__manic.audioState=()=>({state:audioContext?.state??"not-created",connected:!!audioNode});
+let previous=performance.now(),accumulator=0,screenDirty=true,xrInput={left:false,right:false,jump:false,start:false},xrButtonsReady=false,xrGameStarted=false;
+let audioContext=null,audioNode=null,audioUnlockPromise=null;
+globalThis.__manic.audioState=()=>({state:audioContext?.state??"not-created",connected:!!audioNode,promptVisible:!soundButton.hidden});
 async function unlockAudio(){
-  if(audioContext){if(audioContext.state!=="running")await audioContext.resume();return}
-  audioContext=new AudioContext({sampleRate:48_000,latencyHint:"interactive"});
-  await audioContext.audioWorklet.addModule("./src/audio-worklet.js");
-  audioNode=new AudioWorkletNode(audioContext,"spectrum-beeper",{outputChannelCount:[2]});audioNode.connect(audioContext.destination);await audioContext.resume();
+  if(audioContext?.state==="running"){soundButton.hidden=true;return}
+  if(audioUnlockPromise)return audioUnlockPromise;
+  audioUnlockPromise=(async()=>{
+    if(!audioContext){
+      audioContext=new AudioContext({sampleRate:48_000,latencyHint:"interactive"});
+      const resumePromise=audioContext.resume();
+      await Promise.all([resumePromise,audioContext.audioWorklet.addModule("./src/audio-worklet.js")]);
+      audioNode=new AudioWorkletNode(audioContext,"spectrum-beeper",{outputChannelCount:[2]});audioNode.connect(audioContext.destination);
+    }
+    await audioContext.resume();if(audioContext.state!=="running")throw new Error(`Audio context is ${audioContext.state}`);
+    soundButton.hidden=true;status.textContent=CONTROL_TEXT;
+  })();
+  try{await audioUnlockPromise}catch(error){console.error("[MMXR:AUDIO] Failed to enable audio",error);soundButton.hidden=false;status.textContent="Audio was blocked — select ENABLE SOUND to retry";throw error}finally{audioUnlockPromise=null}
 }
-for(const type of["pointerdown","keydown"])addEventListener(type,unlockAudio,{once:true,capture:true});
+function requestAudio(){unlockAudio().catch(()=>{})}
+soundButton.addEventListener("click",requestAudio);
+for(const type of["pointerdown","keydown"])addEventListener(type,requestAudio,{capture:true});
 function sendAudio(){
   if(!audioNode)return;const length=core.manic_audio_len();if(!length)return;
   const samples=new Float32Array(core.memory.buffer,core.manic_audio_ptr(),length).slice();audioNode.port.postMessage(samples,[samples.buffer]);
@@ -108,12 +120,13 @@ function updateRelief(){
 }
 
 function setCoreKey(id,value){core.manic_key(id,value?1:0)}
+function releaseXrInput(){for(const[name,id]of[["left",10],["right",25],["jump",35],["start",30]])if(xrInput[name])setCoreKey(id,false);xrInput={left:false,right:false,jump:false,start:false}}
 function pollXrInput(){
   const session=renderer.xr.getSession();if(!session)return;
-  let horizontal=0,jump=false;
-  for(const source of session.inputSources){const gamepad=source.gamepad;if(!gamepad)continue;horizontal+=gamepad.axes[2]??gamepad.axes[0]??0;jump ||= !!gamepad.buttons[0]?.pressed}
-  const next={left:horizontal<-.25,right:horizontal>.25,jump};
-  for(const [name,id]of[["left",10],["right",25],["jump",35]])if(next[name]!==xrInput[name])setCoreKey(id,next[name]);
+  const controls=readXrControls(session.inputSources),air=core.manic_peek(0x80bc);if(air>=0x24&&air<=0x3f)xrGameStarted=true;
+  if(!xrButtonsReady){if(!controls.anyAction)xrButtonsReady=true;controls.jump=false;controls.start=false}
+  const next={left:controls.left,right:controls.right,jump:controls.jump,start:controls.start||(!xrGameStarted&&controls.jump)};
+  for(const [name,id]of[["left",10],["right",25],["jump",35],["start",30]])if(next[name]!==xrInput[name])setCoreKey(id,next[name]);
   xrInput=next;
 }
 function animate(now){
@@ -136,7 +149,7 @@ async function enableXr(){
   if(!navigator.xr||!await navigator.xr.isSessionSupported("immersive-vr"))return;
   const button=document.createElement("button");button.id="xr";button.textContent="ENTER VR";document.body.append(button);
   button.addEventListener("click",async()=>{
-    button.disabled=true;let session=null;
+    requestAudio();button.disabled=true;let session=null;
     try{
       session=await navigator.xr.requestSession("immersive-vr",{optionalFeatures:["local-floor"]});
       try{await renderer.xr.setSession(session)}catch(error){await session.end().catch(()=>{});throw error}
@@ -144,7 +157,7 @@ async function enableXr(){
       console.error("[MMXR:XR] Failed to enter VR",error);button.disabled=false;status.textContent=`VR unavailable: ${error.message}`;
     }
   });
-  renderer.xr.addEventListener("sessionstart",()=>{stage.scale.setScalar(.009);stage.position.set(0,1.45,-2.25);status.hidden=true;button.hidden=true});
-  renderer.xr.addEventListener("sessionend",()=>{stage.scale.setScalar(1);stage.position.set(0,0,0);status.textContent=CONTROL_TEXT;status.hidden=false;button.disabled=false;button.hidden=false});
+  renderer.xr.addEventListener("sessionstart",()=>{releaseXrInput();xrButtonsReady=false;const air=core.manic_peek(0x80bc);xrGameStarted=air>=0x24&&air<=0x3f;stage.scale.setScalar(.009);stage.position.set(0,1.45,-2.25);status.hidden=true;button.hidden=true});
+  renderer.xr.addEventListener("sessionend",()=>{releaseXrInput();xrButtonsReady=false;stage.scale.setScalar(1);stage.position.set(0,0,0);status.textContent=audioContext?.state==="running"?CONTROL_TEXT:"Select ENABLE SOUND, or click/tap the game, to allow audio";status.hidden=false;button.disabled=false;button.hidden=false});
 }
 enableXr();

@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import {readFileSync} from "node:fs";
 import test from "node:test";
+import {readXrControls} from "../src/xr-input.js";
 
 const wasmBytes=readFileSync(new URL("../src/manic_miner_core.wasm",import.meta.url));
 async function core(){const {instance}=await WebAssembly.instantiate(wasmBytes,{});assert.equal(instance.exports.manic_init(),0);return instance.exports}
@@ -9,6 +10,13 @@ async function enterCentralCavern(){const value=await core();frames(value,5);val
 function tap(core,key){core.manic_key(key,1);frames(core,18);core.manic_key(key,0);frames(core,18)}
 function cavernName(core){return String.fromCharCode(...Array.from({length:32},(_,index)=>core.manic_peek(0x8000+index))).trim()}
 function teleport(core,cavern){const keys=[24];for(let bit=0;bit<5;bit++)if(cavern&(1<<bit))keys.push(15+bit);for(const key of keys)core.manic_key(key,1);frames(core,30);for(const key of keys)core.manic_key(key,0);frames(core,30)}
+function xrSource({axes=[0,0,0,0],buttons=[]}={}){return{gamepad:{axes,buttons:Array.from({length:8},(_,index)=>({pressed:buttons.includes(index),value:buttons.includes(index)?1:0}))}}}
+
+test("Quest controls map thumbsticks, action buttons, and Start",()=>{
+  assert.deepEqual(readXrControls([xrSource({axes:[0,0,-.8,0]})]),{left:true,right:false,jump:false,start:false,anyAction:false});
+  assert.deepEqual(readXrControls([xrSource({buttons:[0,5]})]),{left:false,right:false,jump:true,start:true,anyAction:true});
+  assert.deepEqual(readXrControls([xrSource({buttons:[4,7]})]),{left:false,right:false,jump:true,start:true,anyAction:true});
+});
 
 test("snapshot enters the original title routine",async()=>{
   const value=await core();frames(value,10);
