@@ -1,0 +1,5 @@
+node_modules/
+dist/
+wasm-core/target/
+generated/*.sna
+*.log

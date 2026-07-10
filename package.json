@@ -1,0 +1,16 @@
+{
+  "name": "manic-miner-xr",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "snapshot": "node tools/make-snapshot.mjs",
+    "build:wasm": "cargo build --manifest-path wasm-core/Cargo.toml --target wasm32-unknown-unknown --release && node tools/stage-wasm.mjs",
+    "build": "npm run snapshot && npm run build:wasm",
+    "build:site": "npm run build && node tools/stage-site.mjs",
+    "analyze:z80": "node tools/analyze-z80.mjs",
+    "test": "node --test"
+  },
+  "dependencies": {
+    "three": "^0.185.1"
+  }
+}
