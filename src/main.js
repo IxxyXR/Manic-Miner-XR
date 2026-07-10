@@ -1,8 +1,8 @@
 import * as THREE from "./vendor/three.module.min.js";
-import {readXrControls} from "./xr-input.js";
+import {readXrControls,updateXrViewState,XR_VIEW_DEFAULT} from "./xr-input.js";
 
 const WIDTH=256,HEIGHT=192,FRAME_MS=20,MAX_PIXELS=WIDTH*HEIGHT;
-const CONTROL_TEXT="Desktop: arrows/Q/P move · Space jumps · Enter starts · VR: stick moves · trigger/A/X jumps · B/Y/Menu starts";
+const CONTROL_TEXT="VR: left stick moves · right stick gets nearer/orbits · right-stick click resets · trigger/A/X jumps · B/Y/Menu starts";
 const DEPTH=Object.freeze({
   background:1,platform:22,wall:20,hazard:16,extra:14,scenery:3,
   surface:22,actor:2.5,boss:3,item:1.5,portal:2.5,effect:2,solarEffect:1.25,
@@ -40,7 +40,7 @@ const wasm=await WebAssembly.instantiateStreaming(await fetch("./src/manic_miner
 const core=wasm.instance.exports,initResult=core.manic_init();
 if(initResult!==0)throw new Error(`WASM core initialization failed (${initResult})`);
 const screenPointer=core.manic_screen_ptr();
-globalThis.__manic={core,colorMeshes,renderer,scene,stage,palette,updateRelief};
+globalThis.__manic={core,colorMeshes,renderer,scene,stage,palette,updateRelief,applyXrView};
 status.textContent="Select ENABLE SOUND, or click/tap the game, to allow audio";
 
 let previous=performance.now(),accumulator=0,screenDirty=true,xrInput={left:false,right:false,jump:false,start:false},xrButtonsReady=false,xrGameStarted=false;
@@ -121,16 +121,18 @@ function updateRelief(){
 
 function setCoreKey(id,value){core.manic_key(id,value?1:0)}
 function releaseXrInput(){for(const[name,id]of[["left",10],["right",25],["jump",35],["start",30]])if(xrInput[name])setCoreKey(id,false);xrInput={left:false,right:false,jump:false,start:false}}
-function pollXrInput(){
+function applyXrView(controls,seconds){const view=updateXrViewState({yaw:stage.rotation.y,z:stage.position.z},controls,seconds);stage.rotation.y=view.yaw;stage.position.z=view.z}
+function pollXrInput(seconds){
   const session=renderer.xr.getSession();if(!session)return;
   const controls=readXrControls(session.inputSources),air=core.manic_peek(0x80bc);if(air>=0x24&&air<=0x3f)xrGameStarted=true;
-  if(!xrButtonsReady){if(!controls.anyAction)xrButtonsReady=true;controls.jump=false;controls.start=false}
+  if(!xrButtonsReady){if(!controls.anyAction)xrButtonsReady=true;controls.jump=false;controls.start=false;controls.viewReset=false}
+  applyXrView(controls,seconds);
   const next={left:controls.left,right:controls.right,jump:controls.jump,start:controls.start||(!xrGameStarted&&controls.jump)};
   for(const [name,id]of[["left",10],["right",25],["jump",35],["start",30]])if(next[name]!==xrInput[name])setCoreKey(id,next[name]);
   xrInput=next;
 }
 function animate(now){
-  accumulator+=Math.min(100,now-previous);previous=now;pollXrInput();
+  const elapsed=Math.min(100,now-previous);accumulator+=elapsed;previous=now;pollXrInput(elapsed/1000);
   while(accumulator>=FRAME_MS){core.manic_frame();sendAudio();accumulator-=FRAME_MS;screenDirty=true}
   if(screenDirty)updateRelief();renderer.render(scene,renderer.xr.isPresenting?xrCamera:camera);
 }
@@ -157,7 +159,7 @@ async function enableXr(){
       console.error("[MMXR:XR] Failed to enter VR",error);button.disabled=false;status.textContent=`VR unavailable: ${error.message}`;
     }
   });
-  renderer.xr.addEventListener("sessionstart",()=>{releaseXrInput();xrButtonsReady=false;const air=core.manic_peek(0x80bc);xrGameStarted=air>=0x24&&air<=0x3f;stage.scale.setScalar(.009);stage.position.set(0,1.45,-2.25);status.hidden=true;button.hidden=true});
-  renderer.xr.addEventListener("sessionend",()=>{releaseXrInput();xrButtonsReady=false;stage.scale.setScalar(1);stage.position.set(0,0,0);status.textContent=audioContext?.state==="running"?CONTROL_TEXT:"Select ENABLE SOUND, or click/tap the game, to allow audio";status.hidden=false;button.disabled=false;button.hidden=false});
+  renderer.xr.addEventListener("sessionstart",()=>{releaseXrInput();xrButtonsReady=false;const air=core.manic_peek(0x80bc);xrGameStarted=air>=0x24&&air<=0x3f;stage.scale.setScalar(.009);stage.rotation.set(0,XR_VIEW_DEFAULT.yaw,0);stage.position.set(0,1.45,XR_VIEW_DEFAULT.z);status.hidden=true;button.hidden=true});
+  renderer.xr.addEventListener("sessionend",()=>{releaseXrInput();xrButtonsReady=false;stage.scale.setScalar(1);stage.rotation.set(0,0,0);stage.position.set(0,0,0);status.textContent=audioContext?.state==="running"?CONTROL_TEXT:"Select ENABLE SOUND, or click/tap the game, to allow audio";status.hidden=false;button.disabled=false;button.hidden=false});
 }
 enableXr();
