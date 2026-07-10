@@ -7,7 +7,7 @@ body{display:grid;place-items:center}
 #sound{position:fixed;left:18px;top:18px;padding:11px 16px;border:2px solid #ff0;background:#181800;color:#fff;font:bold 14px monospace;cursor:pointer}
 #xr{position:fixed;right:18px;bottom:18px;padding:11px 16px;border:2px solid #0ff;background:#001018;color:#fff;font:bold 14px monospace;cursor:pointer}
 #sound:disabled,#xr:disabled{opacity:.55;cursor:wait}
-#touch{display:none;position:fixed;inset:auto 14px max(14px,env(safe-area-inset-bottom));gap:10px;width:calc(100% - 28px);pointer-events:none}
-#touch button{height:58px;min-width:70px;border:2px solid #fff;background:#000b;color:#fff;font:bold 14px monospace;pointer-events:auto;touch-action:none}
+#touch{display:none;position:fixed;inset:auto 14px max(14px,env(safe-area-inset-bottom));gap:8px;width:calc(100% - 28px);pointer-events:none;touch-action:none;user-select:none;-webkit-user-select:none}
+#touch button{height:58px;min-width:0;flex:1 1 0;border:2px solid #fff;background:#000b;color:#fff;font:bold 14px monospace;pointer-events:auto;touch-action:none;-webkit-tap-highlight-color:transparent}
 #touch button:last-child{margin-left:auto;border-color:#ff0}
 @media(pointer:coarse){#touch{display:flex}}

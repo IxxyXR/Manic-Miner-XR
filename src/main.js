@@ -164,7 +164,25 @@ renderer.setAnimationLoop(animate);
 const spectrumIds=["ShiftLeft","KeyZ","KeyX","KeyC","KeyV","KeyA","KeyS","KeyD","KeyF","KeyG","KeyQ","KeyW","KeyE","KeyR","KeyT","Digit1","Digit2","Digit3","Digit4","Digit5","Digit0","Digit9","Digit8","Digit7","Digit6","KeyP","KeyO","KeyI","KeyU","KeyY","Enter","KeyL","KeyK","KeyJ","KeyH","Space","ShiftRight","KeyM","KeyN","KeyB"];
 const keyIds=new Map(spectrumIds.map((code,id)=>[code,id]));keyIds.set("ArrowLeft",10);keyIds.set("ArrowRight",25);keyIds.set("ArrowUp",35);
 for(const [type,pressed]of[["keydown",true],["keyup",false]])addEventListener(type,event=>{const id=keyIds.get(event.code);if(id===undefined)return;if(event.repeat&&pressed)return;setCoreKey(id,pressed);event.preventDefault()});
-document.querySelectorAll("#touch button").forEach(button=>{const id=Number(button.dataset.key);button.addEventListener("pointerdown",event=>{button.setPointerCapture(event.pointerId);setCoreKey(id,true)});for(const type of["pointerup","pointercancel","lostpointercapture"])button.addEventListener(type,()=>setCoreKey(id,false))});
+const touchPointers=new Map(),touchKeyCounts=new Map(),MIN_TOUCH_MS=FRAME_MS*2;
+function finishTouchKey(id){const count=(touchKeyCounts.get(id)??1)-1;if(count>0)touchKeyCounts.set(id,count);else{touchKeyCounts.delete(id);setCoreKey(id,false)}}
+function releaseTouchPointer(pointerId,immediate=false){
+  const press=touchPointers.get(pointerId);if(!press)return;touchPointers.delete(pointerId);
+  const delay=immediate?0:Math.max(0,MIN_TOUCH_MS-(performance.now()-press.started));
+  if(delay)setTimeout(()=>finishTouchKey(press.id),delay);else finishTouchKey(press.id);
+}
+document.querySelectorAll("#touch button").forEach(button=>{
+  const id=Number(button.dataset.key);
+  button.addEventListener("pointerdown",event=>{
+    if(touchPointers.has(event.pointerId))return;event.preventDefault();
+    touchPointers.set(event.pointerId,{id,started:performance.now()});
+    const count=touchKeyCounts.get(id)??0;touchKeyCounts.set(id,count+1);if(count===0)setCoreKey(id,true);
+    try{button.setPointerCapture(event.pointerId)}catch(error){console.warn("[MMXR:TOUCH] Pointer capture unavailable",error)}
+  });
+  for(const type of["pointerup","pointercancel","lostpointercapture"])button.addEventListener(type,event=>{event.preventDefault();releaseTouchPointer(event.pointerId)});
+  button.addEventListener("contextmenu",event=>event.preventDefault());
+});
+addEventListener("blur",()=>{for(const pointerId of[...touchPointers.keys()])releaseTouchPointer(pointerId,true)});
 
 addEventListener("pointermove",event=>{if(renderer.xr.isPresenting)return;camera.position.x=100+(event.clientX/innerWidth-.5)*70;camera.position.y=62-(event.clientY/innerHeight-.5)*50;camera.lookAt(0,0,0)});
 function resize(){const bounds=stageElement.getBoundingClientRect(),halfHeight=105,halfWidth=halfHeight*bounds.width/bounds.height;renderer.setSize(bounds.width,bounds.height,false);camera.left=-halfWidth;camera.right=halfWidth;camera.top=halfHeight;camera.bottom=-halfHeight;camera.updateProjectionMatrix()}

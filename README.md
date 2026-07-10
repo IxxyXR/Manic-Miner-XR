@@ -30,6 +30,10 @@ that stick to reset the view. Trigger or A/X jumps, and B/Y or the left Menu
 button starts the game. On the initial title screen, a jump button also starts
 after the Enter VR selection has been released.
 
+On touchscreens, the on-screen **LEFT**, **RIGHT**, **JUMP**, and **START**
+buttons support simultaneous touches; short taps are held long enough for the
+original 50 Hz input scan to observe them.
+
 Browsers do not permit audible playback before a user gesture. Select **ENABLE
 SOUND**, click/tap the game, press a key, or select **ENTER VR** to enable it;
 the sound prompt disappears once the audio context is running.
