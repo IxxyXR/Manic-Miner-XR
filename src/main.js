@@ -45,26 +45,48 @@ globalThis.__manic={core,colorMeshes,renderer,scene,stage,palette,updateRelief,a
 status.textContent="Select ENABLE SOUND, or click/tap the game, to allow audio";
 
 let previous=performance.now(),accumulator=0,screenDirty=true,xrInput={left:false,right:false,jump:false,start:false},xrButtonsReady=false,xrGameStarted=false;
-let audioContext=null,audioNode=null,audioUnlockPromise=null;
-globalThis.__manic.audioState=()=>({state:audioContext?.state??"not-created",connected:!!audioNode,promptVisible:!soundButton.hidden});
+let audioContext=null,audioNode=null,audioGraphPromise=null,audioUnlockPromise=null,audioWorkletLoaded=false;
+globalThis.__manic.audioState=()=>({state:audioContext?.state??"not-created",connected:!!audioNode,workletLoaded:audioWorkletLoaded,promptVisible:!soundButton.hidden});
+function showAudioPrompt(message="Select ENABLE SOUND, or click/tap the game, to allow audio"){
+  soundButton.hidden=false;if(!renderer.xr.isPresenting)status.textContent=message;
+}
+function ensureAudioContext(){
+  if(audioContext)return audioContext;
+  audioContext=new AudioContext({sampleRate:48_000,latencyHint:"interactive"});
+  audioContext.addEventListener("statechange",()=>{
+    if(audioContext.state==="running"&&audioNode){soundButton.hidden=true;if(!renderer.xr.isPresenting)status.textContent=CONTROL_TEXT}
+    else showAudioPrompt(audioContext.state==="suspended"?"Audio paused — select ENABLE SOUND or press an XR trigger":"Audio unavailable — select ENABLE SOUND to retry");
+  });
+  return audioContext;
+}
+async function prepareAudioGraph(){
+  const context=ensureAudioContext();if(audioNode)return audioNode;if(audioGraphPromise)return audioGraphPromise;
+  audioGraphPromise=(async()=>{
+    if(!audioWorkletLoaded){await context.audioWorklet.addModule(`./src/audio-worklet.js?v=${encodeURIComponent(BUILD_VERSION)}`);audioWorkletLoaded=true}
+    const node=new AudioWorkletNode(context,"spectrum-beeper",{outputChannelCount:[2]});
+    node.addEventListener("processorerror",()=>{console.error("[MMXR:AUDIO] Audio worklet processor stopped");node.disconnect();if(audioNode===node)audioNode=null;showAudioPrompt("Audio stopped — press an XR trigger or select ENABLE SOUND")});
+    node.connect(context.destination);audioNode=node;
+    if(context.state==="running"){soundButton.hidden=true;if(!renderer.xr.isPresenting)status.textContent=CONTROL_TEXT}
+    return node;
+  })();
+  try{return await audioGraphPromise}finally{audioGraphPromise=null}
+}
 async function unlockAudio(){
-  if(audioContext?.state==="running"){soundButton.hidden=true;return}
+  const context=ensureAudioContext();
+  const resumePromise=context.resume();
+  if(context.state==="running"&&audioNode){soundButton.hidden=true;return}
   if(audioUnlockPromise)return audioUnlockPromise;
   audioUnlockPromise=(async()=>{
-    if(!audioContext){
-      audioContext=new AudioContext({sampleRate:48_000,latencyHint:"interactive"});
-      const resumePromise=audioContext.resume();
-      await Promise.all([resumePromise,audioContext.audioWorklet.addModule(`./src/audio-worklet.js?v=${encodeURIComponent(BUILD_VERSION)}`)]);
-      audioNode=new AudioWorkletNode(audioContext,"spectrum-beeper",{outputChannelCount:[2]});audioNode.connect(audioContext.destination);
-    }
-    await audioContext.resume();if(audioContext.state!=="running")throw new Error(`Audio context is ${audioContext.state}`);
+    await Promise.all([resumePromise,prepareAudioGraph()]);
+    await context.resume();if(context.state!=="running"||!audioNode)throw new Error(`Audio is incomplete (context ${context.state}, node ${audioNode?"connected":"missing"})`);
     soundButton.hidden=true;status.textContent=CONTROL_TEXT;
   })();
-  try{await audioUnlockPromise}catch(error){console.error("[MMXR:AUDIO] Failed to enable audio",error);soundButton.hidden=false;status.textContent="Audio was blocked — select ENABLE SOUND to retry";throw error}finally{audioUnlockPromise=null}
+  try{await audioUnlockPromise}catch(error){console.error("[MMXR:AUDIO] Failed to enable audio",error);showAudioPrompt("Audio was blocked — press an XR trigger or select ENABLE SOUND to retry");throw error}finally{audioUnlockPromise=null}
 }
 function requestAudio(){unlockAudio().catch(()=>{})}
 soundButton.addEventListener("click",requestAudio);
 for(const type of["pointerdown","keydown"])addEventListener(type,requestAudio,{capture:true});
+prepareAudioGraph().catch(error=>console.warn("[MMXR:AUDIO] Audio graph preload failed; will retry on interaction",error));
 function sendAudio(){
   if(!audioNode)return;const length=core.manic_audio_len();if(!length)return;
   const samples=new Float32Array(core.memory.buffer,core.manic_audio_ptr(),length).slice();audioNode.port.postMessage(samples,[samples.buffer]);
@@ -155,12 +177,13 @@ async function enableXr(){
     requestAudio();button.disabled=true;let session=null;
     try{
       session=await navigator.xr.requestSession("immersive-vr",{optionalFeatures:["local-floor"]});
+      session.addEventListener("select",requestAudio);
       try{await renderer.xr.setSession(session)}catch(error){await session.end().catch(()=>{});throw error}
     }catch(error){
       console.error("[MMXR:XR] Failed to enter VR",error);button.disabled=false;status.textContent=`VR unavailable: ${error.message}`;
     }
   });
-  renderer.xr.addEventListener("sessionstart",()=>{releaseXrInput();xrButtonsReady=false;const air=core.manic_peek(0x80bc);xrGameStarted=air>=0x24&&air<=0x3f;stage.scale.setScalar(.009);stage.rotation.set(0,XR_VIEW_DEFAULT.yaw,0);stage.position.set(0,1.45,XR_VIEW_DEFAULT.z);status.hidden=true;button.hidden=true});
-  renderer.xr.addEventListener("sessionend",()=>{releaseXrInput();xrButtonsReady=false;stage.scale.setScalar(1);stage.rotation.set(0,0,0);stage.position.set(0,0,0);status.textContent=audioContext?.state==="running"?CONTROL_TEXT:"Select ENABLE SOUND, or click/tap the game, to allow audio";status.hidden=false;button.disabled=false;button.hidden=false});
+  renderer.xr.addEventListener("sessionstart",()=>{requestAudio();releaseXrInput();xrButtonsReady=false;const air=core.manic_peek(0x80bc);xrGameStarted=air>=0x24&&air<=0x3f;stage.scale.setScalar(.009);stage.rotation.set(0,XR_VIEW_DEFAULT.yaw,0);stage.position.set(0,1.45,XR_VIEW_DEFAULT.z);status.hidden=true;button.hidden=true});
+  renderer.xr.addEventListener("sessionend",()=>{releaseXrInput();xrButtonsReady=false;stage.scale.setScalar(1);stage.rotation.set(0,0,0);stage.position.set(0,0,0);status.textContent=audioContext?.state==="running"&&audioNode?CONTROL_TEXT:"Select ENABLE SOUND, or click/tap the game, to allow audio";status.hidden=false;button.disabled=false;button.hidden=false});
 }
 enableXr();
