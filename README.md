@@ -30,6 +30,7 @@ Run deterministic core checks with `npm test`.
 
 Every push to `main` rebuilds the Spectrum core, runs the tests, and publishes
 the contents of `dist/` to GitHub Pages using `.github/workflows/pages.yml`.
+The repository's Pages source must be set to **GitHub Actions** once in Settings.
 
 The runtime uses [RustZX](https://github.com/rustzx/rustzx) for Spectrum hardware
 emulation and [Three.js](https://threejs.org/) for WebGL/WebXR presentation.

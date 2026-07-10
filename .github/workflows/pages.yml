@@ -38,7 +38,7 @@ jobs:
         run: npm test
 
       - name: Configure GitHub Pages
-        uses: actions/configure-pages@v5
+        uses: actions/configure-pages@v6
 
       - name: Upload the site artifact
         uses: actions/upload-pages-artifact@v4
